@@ -1,0 +1,1 @@
+docker exec -it steganografie-warden-1 bash -c "apt-get update && apt-get install -y iproute2 && tc qdisc add dev eth0 root netem delay 50ms reorder 25% 50%"
