@@ -11,6 +11,7 @@ secret_data = None
 out_file = None
 jitter_enabled = True
 execute_commands = True
+mitigated = False
 connections = {}
 
 def handle_connection_teardown(tcp_layer, connection_id, sender_name):
@@ -45,11 +46,13 @@ def handle_outgoing_packet(tcp_layer, connection_id):
         global out_file
         global jitter_enabled
         global execute_commands
+        global mitigated
         connections[connection_id] = Connection.create_from_syn(
             tcp_layer,
             out_file=out_file,
             execute_commands=execute_commands,
             jitter_enabled=jitter_enabled,
+            mitigated=mitigated,
         )
         return
         
@@ -120,6 +123,7 @@ def main():
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable DEBUG logging")
     parser.add_argument("--no-jitter", action="store_true", help="Disable the jitter buffer (process packets in wire-arrival order)")
     parser.add_argument("--no-exec", action="store_true", help="Do not execute received frames as shell commands; just save them to disk")
+    parser.add_argument("--mitigated", action="store_true", help="Enable clock-tick gating: only inject/extract when the TCP clock ticked")
     args = parser.parse_args()
 
     log_level = logging.DEBUG if args.verbose else logging.INFO
@@ -131,13 +135,15 @@ def main():
     global secret_data
     global jitter_enabled
     global execute_commands
+    global mitigated
 
     NetworkConfig.PORT = args.port
     ProtocolConfig.BITS_PER_PACKET = args.bpp
     out_file = args.out
     jitter_enabled = not args.no_jitter
     execute_commands = not args.no_exec
-    logging.info(f"Jitter buffer: {'enabled' if jitter_enabled else 'disabled'}; execute_commands: {execute_commands}")
+    mitigated = args.mitigated
+    logging.info(f"Jitter buffer: {'enabled' if jitter_enabled else 'disabled'}; execute_commands: {execute_commands}; mitigated: {mitigated}")
     
     output_path = os.path.join("received", args.out)
     logging.info(f"Configuration: Port={args.port}, BPP={args.bpp}, Output Path={output_path}")

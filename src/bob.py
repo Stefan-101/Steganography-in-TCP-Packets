@@ -10,6 +10,7 @@ from connection import Connection
 
 out_file = None
 secret_data = None
+mitigated = False
 connections = {}
 
 def handle_connection_teardown(tcp_layer, connection_id, sender_name):
@@ -75,8 +76,9 @@ def handle_outgoing_packet(tcp_layer, connection_id):
     if "S" in tcp_layer.flags:
         global out_file
         global secret_data
-        
-        conn = Connection.create_from_syn(tcp_layer, out_file=out_file)
+        global mitigated
+
+        conn = Connection.create_from_syn(tcp_layer, out_file=out_file, mitigated=mitigated)
 
         # the session key is established using the isn from alice stored earlier (connections[connection_id])
         # and the isn generated here by bob
@@ -123,6 +125,7 @@ def main():
     parser.add_argument("-p", "--port", type=int, default=80, help="Target port to monitor (default: 80)")
     parser.add_argument("-b", "--bpp", type=int, default=2, choices=range(1, 9), help="Bits Per Packet (must match Alice)")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable DEBUG logging")
+    parser.add_argument("--mitigated", action="store_true", help="Enable clock-tick gating: only inject/extract when the TCP clock ticked")
     args = parser.parse_args()
 
     log_level = logging.DEBUG if args.verbose else logging.INFO
@@ -132,13 +135,15 @@ def main():
 
     global out_file
     global secret_data
+    global mitigated
 
     NetworkConfig.PORT = args.port
     ProtocolConfig.BITS_PER_PACKET = args.bpp
     out_file = args.out
-    
+    mitigated = args.mitigated
+
     output_path = os.path.join("received", args.out)
-    logging.info(f"Configuration: Port={args.port}, BPP={args.bpp}, Output Path={output_path}")
+    logging.info(f"Configuration: Port={args.port}, BPP={args.bpp}, Output Path={output_path}, mitigated={mitigated}")
 
     # load data to send
     if args.file:

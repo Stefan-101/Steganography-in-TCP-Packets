@@ -18,7 +18,7 @@ cd scripts
 ALICE_FLAGS=""
 [ "$JITTER_ENABLED" = "0" ] && ALICE_FLAGS="$ALICE_FLAGS --no-jitter"
 [ "$EXECUTE_COMMANDS" = "0" ] && ALICE_FLAGS="$ALICE_FLAGS --no-exec"
-python3 alice.py $ALICE_FLAGS &
+python3 alice.py $ALICE_FLAGS $( [ "$MITIGATED" = "1" ] && echo "--mitigated" ) &
 
 cd ..
 wget http://172.8.0.3/carrier_file.bin

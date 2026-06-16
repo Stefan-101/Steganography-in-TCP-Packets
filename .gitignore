@@ -1,2 +1,8 @@
 __pycache__
 vps_setup.sh
+pcaps_baseline
+
+# regenerated per-pcap feature caches; keep only the diverse baselines
+# whose raw captures are not redistributed
+experiments/classifier_cache/*
+!experiments/classifier_cache/baseline_*.npz

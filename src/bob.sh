@@ -18,4 +18,4 @@ cd scripts
 # head -c 5K </dev/urandom > ./secret/bobs_secret.txt
 # head -c 50M </dev/urandom > large_file.bin
 python3 -m http.server 80 --directory /http_server &
-python3 bob.py --file ./secret/bobs_secret.txt &
+python3 bob.py --file ./secret/bobs_secret.txt $( [ "$MITIGATED" = "1" ] && echo "--mitigated" ) &

@@ -14,6 +14,7 @@ services:
         environment:
           - JITTER_ENABLED=${JITTER_ENABLED:-1}
           - EXECUTE_COMMANDS=${EXECUTE_COMMANDS:-1}
+          - MITIGATED=${MITIGATED:-0}
         networks:
             net_alice:
               ipv4_address: 172.7.0.2
@@ -35,6 +36,8 @@ services:
           - NET_ADMIN
           - NET_RAW
           - SYS_ADMIN
+        environment:
+          - MITIGATED=${MITIGATED:-0}
         networks:
             net_bob:
               ipv4_address: 172.8.0.3

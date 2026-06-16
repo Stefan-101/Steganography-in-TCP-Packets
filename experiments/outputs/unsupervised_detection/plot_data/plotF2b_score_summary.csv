@@ -1,0 +1,4 @@
+detector,threshold_5pctFPR,auroc_v3,tpr_v3,n_normal_windows,n_v3_windows
+IF,0.548576,0.340294,0.003047,4575,3610
+OCSVM,-5.447838,0.646448,0.006371,4575,3610
+GMM,26.654352,0.621832,0.007756,4575,3610

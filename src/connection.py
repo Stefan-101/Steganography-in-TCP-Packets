@@ -13,7 +13,7 @@ class JitterBufferItem:
         self.ack = tcp_layer.ack
 
 class Connection:
-    def __init__(self, delta, local_isn, out_folder, out_file, execute_commands, jitter_enabled=True):
+    def __init__(self, delta, local_isn, out_folder, out_file, execute_commands, jitter_enabled=True, mitigated=False):
         self.delta = delta
         self.fin_count = 0
 
@@ -39,8 +39,16 @@ class Connection:
         self.jitter_buffer = []
         self.jitter_delay = 0.1
 
+        # clock-tick gating mitigation: only inject/extract when the kernel TCP
+        # clock has actually ticked since the last packet (raw TSval changed).
+        # When it has not ticked the packet is passed through / skipped unchanged,
+        # which reproduces the natural diff=0 distribution of legitimate traffic.
+        self.mitigated = mitigated
+        self.last_raw_tsval_inject = None
+        self.last_raw_tsval_extract = None
+
     @classmethod
-    def create_from_syn(cls, tcp_layer, out_folder="received", out_file="recv.bin", execute_commands=False, jitter_enabled=True):
+    def create_from_syn(cls, tcp_layer, out_folder="received", out_file="recv.bin", execute_commands=False, jitter_enabled=True, mitigated=False):
         """
         Factory method, generates an ISN, modifies the tcp_layer and returns
         an initialized Connection object.
@@ -55,7 +63,7 @@ class Connection:
         tcp_layer.seq = generated_isn
         logging.debug("Modified ISN in outgoing SYN packet.")
 
-        return cls(delta, generated_isn, out_folder, out_file, execute_commands, jitter_enabled=jitter_enabled)
+        return cls(delta, generated_isn, out_folder, out_file, execute_commands, jitter_enabled=jitter_enabled, mitigated=mitigated)
 
     def translate_seq(self, tcp_layer):
         """
@@ -95,12 +103,39 @@ class Connection:
         self.session_key = derive_session_key(self.local_isn, peer_isn)
         logging.info(f"Session key established successfully.")
 
+    @staticmethod
+    def _read_raw_tsval(tcp_layer):
+        """Return the raw TSval from the TCP Timestamp option, or None if absent."""
+        for opt in tcp_layer.options:
+            if opt[0] == 'Timestamp':
+                return opt[1][0]
+        return None
+
     def inject_next_bits(self, tcp_layer):
         """
         Injects the next bit into the timestamp
         TODO:
             - maybe don't inject in every packet
         """
+        # clock-tick gating: if the kernel clock hasn't ticked since the last inject,
+        # pass the packet through unchanged and don't consume any bits from the queue.
+        current_raw_tsval = self._read_raw_tsval(tcp_layer)
+        if (self.mitigated
+                and self.last_raw_tsval_inject is not None
+                and current_raw_tsval is not None
+                and current_raw_tsval == self.last_raw_tsval_inject):
+            # Stamp with the last injected wire value so the wire never decreases
+            # and the receiver's equality gate fires (same value → receiver skips).
+            new_options = []
+            for opt in tcp_layer.options:
+                if opt[0] == 'Timestamp':
+                    _, tsecr = opt[1]
+                    new_options.append(('Timestamp', (self.last_injected_tsval, tsecr)))
+                else:
+                    new_options.append(opt)
+            tcp_layer.options = new_options
+            return
+
         if "A" not in tcp_layer.flags:
             return
             
@@ -158,9 +193,14 @@ class Connection:
 
         if injected:
             tcp_layer.options = new_options
-            
+
             if extracted_bit_from_queue:
                 logging.debug(f"Injected bits {bits_to_str(plaintext_bits)}. Queue remaining: {len(self.send_queue)}")
+
+        # injection proceeded: remember this packet's raw TSval so the next packet
+        # carrying the same raw TSval (same clock tick) is passed through unchanged.
+        if current_raw_tsval is not None:
+            self.last_raw_tsval_inject = current_raw_tsval
 
     def extract_and_process_bit(self, tcp_layer):
         """
@@ -168,6 +208,15 @@ class Connection:
         When jitter_enabled is False, bypasses the buffer entirely and processes
         packets immediately in wire-arrival order.
         """
+        # clock-tick gating: if the clock hasn't ticked since the last extract,
+        # the sender passed this packet through unchanged, so skip it.
+        current_raw_tsval = self._read_raw_tsval(tcp_layer)
+        if (self.mitigated
+                and self.last_raw_tsval_extract is not None
+                and current_raw_tsval is not None
+                and current_raw_tsval == self.last_raw_tsval_extract):
+            return
+
         if "A" not in tcp_layer.flags:
             return
 
@@ -175,6 +224,11 @@ class Connection:
         if packet_state in self.extracted_cache:
             return
         self.extracted_cache[packet_state] = True
+
+        # extraction is proceeding for this packet: remember its TSval so the next
+        # packet carrying the same TSval (same clock tick) is skipped.
+        if current_raw_tsval is not None:
+            self.last_raw_tsval_extract = current_raw_tsval
 
         if len(self.extracted_cache) > 1000:     # remove old states from cache
             del self.extracted_cache[next(iter(self.extracted_cache))]
